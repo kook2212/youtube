@@ -14,25 +14,15 @@ import {
   AlertCircle,
   BarChart3,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  X
 } from 'lucide-react';
 
-// 初始預設數據（根據用戶上傳的帳單與郵件模擬）
-const INITIAL_DATA = [
+// 初始數據：整合用戶提供的 PDF 帳單數據
+const DEFAULT_PROJECTS = [
   {
-    id: 1,
-    title: "Naughty Things 合作邀約 (Sam Lee)",
-    client: "Naughty Things Creative",
-    shootDate: "2026-04-15",
-    deadline: "2026-04-30",
-    revenue: 15000,
-    adsCost: 0,
-    otherCost: 500,
-    paymentStatus: "unpaid"
-  },
-  {
-    id: 2,
-    title: "3月廣告投放總計 (Google Ads)",
+    id: "ads-march",
+    title: "3月 Google Ads 總支出",
     client: "Google Ads",
     shootDate: "2026-03-31",
     deadline: "2026-03-31",
@@ -42,8 +32,8 @@ const INITIAL_DATA = [
     paymentStatus: "paid"
   },
   {
-    id: 3,
-    title: "2月廣告投放總計 (Google Ads)",
+    id: "ads-feb",
+    title: "2月 Google Ads 總支出",
     client: "Google Ads",
     shootDate: "2026-02-28",
     deadline: "2026-02-28",
@@ -51,114 +41,120 @@ const INITIAL_DATA = [
     adsCost: 3922.63,
     otherCost: 0,
     paymentStatus: "paid"
+  },
+  {
+    id: "proj-1",
+    title: "Naughty Things 合作",
+    client: "Naughty Things",
+    shootDate: "2026-04-10",
+    deadline: "2026-04-25",
+    revenue: 18000,
+    adsCost: 2500,
+    otherCost: 300,
+    paymentStatus: "unpaid"
   }
 ];
 
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState(false);
-  const [viewMode, setViewMode] = useState('calendar'); // 'calendar', 'list', 'report'
-  const [reportScope, setReportScope] = useState('monthly'); // 'monthly', 'all'
+  const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list'
+  const [currentDate, setCurrentDate] = useState(new Date(2026, 2, 1)); // 默認顯示 2026年3月
+  const [reportType, setReportType] = useState('monthly'); // 'monthly' | 'all'
   
-  // 當前月份選擇
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 2, 1)); // 預設 2026年3月
-  const selectedMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-
   const [projects, setProjects] = useState(() => {
-    const saved = localStorage.getItem('peak_management_v5');
-    return saved ? JSON.parse(saved) : INITIAL_DATA;
+    const saved = localStorage.getItem('peak_v5_data');
+    return saved ? JSON.parse(saved) : DEFAULT_PROJECTS;
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem('peak_management_v5', JSON.stringify(projects));
+    localStorage.setItem('peak_v5_data', JSON.stringify(projects));
   }, [projects]);
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (password === 'A21331238a@') {
-      setIsAuthenticated(true);
-      setLoginError(false);
-    } else {
-      setLoginError(true);
-    }
+    if (password === 'A21331238a@') setIsAuthenticated(true);
   };
 
-  // 財務數據計算邏輯
+  // 核心邏輯：計算統計數據
   const stats = useMemo(() => {
-    const targetProjects = reportScope === 'monthly' 
-      ? projects.filter(p => p.shootDate.startsWith(selectedMonthStr) || p.deadline.startsWith(selectedMonthStr))
-      : projects;
+    const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const filtered = reportType === 'all' 
+      ? projects 
+      : projects.filter(p => p.shootDate.startsWith(currentMonthStr) || p.deadline.startsWith(currentMonthStr));
 
-    const revenue = targetProjects.reduce((sum, p) => sum + (Number(p.revenue) || 0), 0);
-    const ads = targetProjects.reduce((sum, p) => sum + (Number(p.adsCost) || 0), 0);
-    const other = targetProjects.reduce((sum, p) => sum + (Number(p.otherCost) || 0), 0);
-    const cost = ads + other;
-    return { revenue, ads, other, cost, net: revenue - cost };
-  }, [projects, selectedMonthStr, reportScope]);
+    const totalRevenue = filtered.reduce((sum, p) => sum + Number(p.revenue || 0), 0);
+    const totalAds = filtered.reduce((sum, p) => sum + Number(p.adsCost || 0), 0);
+    const totalOther = filtered.reduce((sum, p) => sum + Number(p.otherCost || 0), 0);
+    const totalCost = totalAds + totalOther;
 
-  const addOrUpdateProject = (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const newProject = {
-      id: editingProject ? editingProject.id : Date.now(),
-      title: formData.get('title'),
-      client: formData.get('client'),
-      shootDate: formData.get('shootDate'),
-      deadline: formData.get('deadline'),
-      revenue: Number(formData.get('revenue')),
-      adsCost: Number(formData.get('adsCost')),
-      otherCost: Number(formData.get('otherCost')),
-      paymentStatus: formData.get('paymentStatus'),
+    return {
+      revenue: totalRevenue,
+      cost: totalCost,
+      net: totalRevenue - totalCost,
+      ads: totalAds,
+      other: totalOther
     };
+  }, [projects, currentDate, reportType]);
 
-    if (editingProject) {
-      setProjects(projects.map(p => p.id === editingProject.id ? newProject : p));
-    } else {
-      setProjects([...projects, newProject]);
-    }
-    setIsModalOpen(false);
-    setEditingProject(null);
-  };
-
-  // 生成月曆矩陣
-  const calendarDays = useMemo(() => {
+  // 月曆渲染邏輯
+  const calendarGrid = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-    const firstDayOfMonth = new Date(year, month, 1).getDay();
+    const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     
-    const days = [];
-    // 填充空白
-    for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
-    // 填充日期
-    for (let i = 1; i <= daysInMonth; i++) days.push(i);
-    return days;
+    const grid = [];
+    for (let i = 0; i < firstDay; i++) grid.push(null);
+    for (let i = 1; i <= daysInMonth; i++) grid.push(i);
+    return grid;
   }, [currentDate]);
+
+  const saveProject = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = {
+      id: editingItem ? editingItem.id : Date.now().toString(),
+      title: fd.get('title'),
+      client: fd.get('client'),
+      shootDate: fd.get('shootDate'),
+      deadline: fd.get('deadline'),
+      revenue: parseFloat(fd.get('revenue')),
+      adsCost: parseFloat(fd.get('adsCost')),
+      otherCost: parseFloat(fd.get('otherCost')),
+      paymentStatus: fd.get('paymentStatus')
+    };
+
+    if (editingItem) {
+      setProjects(projects.map(p => p.id === editingItem.id ? data : p));
+    } else {
+      setProjects([...projects, data]);
+    }
+    setIsModalOpen(false);
+    setEditingItem(null);
+  };
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 font-sans">
-        <div className="bg-white rounded-[3rem] p-12 w-full max-w-md shadow-2xl text-center">
-          <div className="bg-blue-600 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 text-white rotate-3 shadow-xl shadow-blue-500/20">
-            <TrendingUp size={48} />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl">
+          <div className="flex justify-center mb-8">
+            <div className="bg-blue-600 p-4 rounded-3xl text-white shadow-lg"><TrendingUp size={40} /></div>
           </div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tighter">高峰熱話</h1>
-          <p className="text-slate-400 mt-3 font-bold mb-10 uppercase tracking-widest text-xs">YT Management System</p>
-          <form onSubmit={handleLogin} className="space-y-6">
-            <input
-              type="password"
-              className={`w-full px-8 py-5 border-4 rounded-[2rem] outline-none transition-all text-center text-2xl font-black ${loginError ? 'border-red-500 bg-red-50' : 'border-slate-100 bg-slate-50 focus:border-blue-600'}`}
-              placeholder="••••••••"
+          <h1 className="text-3xl font-black text-center mb-2">高峰熱話</h1>
+          <p className="text-center text-slate-400 font-bold mb-8 uppercase tracking-widest text-xs">YT Operation Center</p>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input 
+              type="password" 
+              placeholder="請輸入密碼" 
+              className="w-full px-6 py-4 bg-slate-100 border-none rounded-2xl focus:ring-2 ring-blue-500 outline-none font-bold text-center"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={e => setPassword(e.target.value)}
             />
-            <button className="w-full bg-slate-900 hover:bg-blue-600 text-white font-black py-6 rounded-[2rem] shadow-xl transition-all active:scale-95">
-              解鎖看板
-            </button>
+            <button className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 transition-all">解鎖系統</button>
           </form>
         </div>
       </div>
@@ -166,268 +162,227 @@ const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row text-slate-900 overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
       
-      {/* 側邊資訊版 (Mobile: Top, Desktop: Left) */}
-      <aside className="w-full lg:w-96 bg-white lg:h-screen lg:sticky lg:top-0 border-r border-slate-200 p-6 flex flex-col z-20">
-        <div className="flex items-center space-x-3 mb-10 px-2">
-          <div className="bg-slate-900 p-2 rounded-xl text-white"><TrendingUp size={24} /></div>
-          <h2 className="text-2xl font-black italic tracking-tighter">Peak Admin.</h2>
+      {/* 側邊導航與報表 */}
+      <aside className="w-full md:w-80 bg-white border-r border-slate-200 p-6 flex flex-col space-y-6">
+        <div className="flex items-center space-x-3 px-2">
+          <div className="bg-slate-900 p-2 rounded-xl text-white"><TrendingUp size={20}/></div>
+          <span className="font-black text-xl tracking-tighter italic">PEAK ADMIN</span>
         </div>
 
-        {/* 範圍切換：本月 vs 全部 */}
-        <div className="flex bg-slate-100 p-1.5 rounded-2xl mb-6">
+        <div className="bg-slate-100 p-1.5 rounded-2xl flex">
           <button 
-            onClick={() => setReportScope('monthly')}
-            className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${reportScope === 'monthly' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}
+            onClick={() => setReportType('monthly')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all ${reportType === 'monthly' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}
           >
-            月度報表
+            本月報表
           </button>
           <button 
-            onClick={() => setReportScope('all')}
-            className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${reportScope === 'all' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}
+            onClick={() => setReportType('all')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all ${reportType === 'all' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}
           >
-            年度結算
+            年度統計
           </button>
         </div>
 
-        {/* 財務主面板 */}
-        <div className="space-y-4 flex-1">
-          <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full -mr-16 -mt-16"></div>
-            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">
-              {reportScope === 'monthly' ? `${selectedMonthStr} 純利` : '累計總利潤'}
+        <div className="space-y-4">
+          <div className="bg-slate-900 p-6 rounded-[2rem] text-white shadow-xl">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+              {reportType === 'all' ? '總累積利潤' : '當月預估純利'}
             </p>
-            <h3 className="text-5xl font-black tracking-tighter mb-6">
-              <span className="text-blue-500">$</span>{stats.net.toLocaleString()}
-            </h3>
-            <div className="flex items-center space-x-2 text-xs font-bold text-green-400">
-              <ArrowUpRight size={16} />
-              <span>營收狀況良好</span>
+            <h2 className="text-4xl font-black tracking-tighter">${stats.net.toLocaleString()}</h2>
+            <div className="mt-4 flex items-center text-green-400 text-xs font-bold">
+              <ArrowUpRight size={14} className="mr-1"/> 營收狀況穩定
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 px-2">
-            <div className="flex justify-between items-center py-4 border-b border-slate-100">
-              <div className="flex items-center space-x-3">
-                <div className="bg-green-100 text-green-600 p-2 rounded-lg"><ArrowUpRight size={16} /></div>
-                <span className="font-bold text-slate-500 text-sm">總收入</span>
-              </div>
-              <span className="font-black text-slate-800">${stats.revenue.toLocaleString()}</span>
+          <div className="space-y-2 px-2">
+            <div className="flex justify-between items-center py-3 border-b border-slate-50">
+              <span className="text-xs font-bold text-slate-400">總收入</span>
+              <span className="font-black text-green-600">+${stats.revenue.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between items-center py-4 border-b border-slate-100">
-              <div className="flex items-center space-x-3">
-                <div className="bg-red-100 text-red-600 p-2 rounded-lg"><ArrowDownRight size={16} /></div>
-                <span className="font-bold text-slate-500 text-sm">Google Ads 支出</span>
-              </div>
-              <span className="font-black text-slate-800">-${stats.ads.toLocaleString()}</span>
+            <div className="flex justify-between items-center py-3 border-b border-slate-50">
+              <span className="text-xs font-bold text-slate-400">Google Ads</span>
+              <span className="font-black text-red-500">-${stats.ads.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between items-center py-4 border-b border-slate-100">
-              <div className="flex items-center space-x-3">
-                <div className="bg-slate-100 text-slate-600 p-2 rounded-lg"><BarChart3 size={16} /></div>
-                <span className="font-bold text-slate-500 text-sm">雜費項目</span>
-              </div>
-              <span className="font-black text-slate-800">-${stats.other.toLocaleString()}</span>
+            <div className="flex justify-between items-center py-3 border-b border-slate-50">
+              <span className="text-xs font-bold text-slate-400">雜費支出</span>
+              <span className="font-black text-slate-600">-${stats.other.toLocaleString()}</span>
             </div>
           </div>
         </div>
 
-        <button 
-          onClick={() => setIsAuthenticated(false)}
-          className="mt-6 flex items-center justify-center space-x-2 text-slate-300 hover:text-red-500 transition-all py-4 font-black text-[10px] uppercase tracking-widest border-t border-slate-100"
-        >
-          <LogOut size={14} />
-          <span>登出系統</span>
-        </button>
+        <div className="mt-auto pt-6 border-t border-slate-100 flex flex-col space-y-2">
+          <button 
+            onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
+            className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center space-x-2"
+          >
+            <Plus size={18} /> <span>新增紀錄</span>
+          </button>
+          <button onClick={() => setIsAuthenticated(false)} className="w-full py-4 text-slate-300 text-[10px] font-black uppercase tracking-widest hover:text-red-500 transition-colors flex items-center justify-center space-x-1">
+            <LogOut size={12}/> <span>登出系統</span>
+          </button>
+        </div>
       </aside>
 
-      {/* 主工作區 */}
-      <main className="flex-1 flex flex-col overflow-hidden h-screen">
-        
-        {/* 頂部導覽列 */}
-        <header className="bg-white border-b border-slate-200 px-8 py-6 flex flex-col md:flex-row justify-between items-center gap-6 z-10">
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl">
-              <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 hover:bg-white rounded-xl shadow-sm transition-all"><ChevronLeft size={20}/></button>
-              <span className="px-6 font-black text-lg tracking-tighter">{currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月</span>
-              <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 hover:bg-white rounded-xl shadow-sm transition-all"><ChevronRight size={20}/></button>
-            </div>
-            
-            <div className="hidden md:flex bg-slate-100 p-1.5 rounded-2xl">
-              <button onClick={() => setViewMode('calendar')} className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${viewMode === 'calendar' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}>月曆視圖</button>
-              <button onClick={() => setViewMode('list')} className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${viewMode === 'list' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}>清單模式</button>
-            </div>
+      {/* 主內容區 */}
+      <main className="flex-1 flex flex-col min-h-screen">
+        <header className="bg-white border-b border-slate-200 px-8 py-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center bg-slate-100 p-1 rounded-2xl">
+            <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 hover:bg-white rounded-xl shadow-sm transition-all"><ChevronLeft size={20}/></button>
+            <span className="px-6 font-black text-lg tracking-tighter">{currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月</span>
+            <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="p-2 hover:bg-white rounded-xl shadow-sm transition-all"><ChevronRight size={20}/></button>
           </div>
 
-          <button 
-            onClick={() => { setEditingProject(null); setIsModalOpen(true); }}
-            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl flex items-center justify-center space-x-2 shadow-xl shadow-blue-200 font-black transition-all active:scale-95"
-          >
-            <Plus size={20} strokeWidth={3} />
-            <span>新增項目</span>
-          </button>
+          <div className="flex bg-slate-100 p-1 rounded-2xl">
+            <button onClick={() => setViewMode('calendar')} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>月曆視圖</button>
+            <button onClick={() => setViewMode('list')} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>詳細清單</button>
+          </div>
         </header>
 
-        {/* 內容顯示區 */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-10">
-          <div className="max-w-6xl mx-auto">
-            
-            {viewMode === 'calendar' ? (
-              /* --- 月曆模式 --- */
-              <div className="bg-white rounded-[3rem] border border-slate-200 shadow-xl overflow-hidden">
-                <div className="grid grid-cols-7 border-b border-slate-100">
-                  {['週日', '週一', '週二', '週三', '週四', '週五', '週六'].map(d => (
-                    <div key={d} className="py-6 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7">
-                  {calendarDays.map((day, idx) => {
-                    if (!day) return <div key={`empty-${idx}`} className="aspect-square bg-slate-50/50 border-r border-b border-slate-100"></div>;
-                    
-                    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const dayItems = projects.filter(p => p.shootDate === dateStr || p.deadline === dateStr);
-                    
-                    return (
-                      <div key={idx} className="aspect-square border-r border-b border-slate-100 p-2 sm:p-4 hover:bg-blue-50/20 transition-colors relative group">
-                        <span className="text-sm font-black text-slate-400 group-hover:text-blue-600 transition-colors">{day}</span>
-                        <div className="mt-2 space-y-1 overflow-y-auto max-h-[80%] custom-scrollbar">
-                          {dayItems.map(p => (
-                            <div 
-                              key={p.id} 
-                              onClick={() => { setEditingProject(p); setIsModalOpen(true); }}
-                              className={`px-2 py-1.5 rounded-lg text-[9px] font-black cursor-pointer shadow-sm hover:scale-105 transition-transform truncate ${p.shootDate === dateStr ? 'bg-slate-900 text-white' : 'bg-blue-600 text-white'}`}
-                            >
-                              {p.shootDate === dateStr ? '🎥' : '🏁'} {p.title}
-                            </div>
-                          ))}
-                        </div>
+        <div className="flex-1 p-4 sm:p-10 overflow-y-auto">
+          {viewMode === 'calendar' ? (
+            <div className="max-w-5xl mx-auto bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden">
+              <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/50">
+                {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                  <div key={d} className="py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7">
+                {calendarGrid.map((day, idx) => {
+                  if (!day) return <div key={idx} className="aspect-square bg-slate-50/30 border-r border-b border-slate-50"></div>;
+                  
+                  const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const dayItems = projects.filter(p => p.shootDate === dateStr || p.deadline === dateStr);
+
+                  return (
+                    <div key={idx} className="aspect-square border-r border-b border-slate-100 p-2 hover:bg-blue-50/30 transition-colors relative group">
+                      <span className="text-xs font-black text-slate-400">{day}</span>
+                      <div className="mt-1 space-y-1 overflow-hidden">
+                        {dayItems.map(p => (
+                          <div 
+                            key={p.id}
+                            onClick={() => { setEditingItem(p); setIsModalOpen(true); }}
+                            className={`px-2 py-1 rounded-md text-[9px] font-black cursor-pointer truncate shadow-sm ${p.revenue > 0 ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`}
+                          >
+                            {p.title}
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-            ) : (
-              /* --- 清單模式 --- */
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">
-                        <th className="px-10 py-6">廣告項目 / 客戶</th>
-                        <th className="px-10 py-6">關鍵日期</th>
-                        <th className="px-10 py-6">財務收支 (HKD)</th>
-                        <th className="px-10 py-6">狀態</th>
-                        <th className="px-10 py-6 text-right">管理</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {projects
-                        .filter(p => p.shootDate.startsWith(selectedMonthStr) || p.deadline.startsWith(selectedMonthStr))
-                        .sort((a,b) => new Date(b.shootDate) - new Date(a.shootDate))
-                        .map(p => (
-                        <tr key={p.id} className="hover:bg-slate-50/80 transition-colors group">
-                          <td className="px-10 py-8">
-                            <p className="font-black text-slate-900 text-lg">{p.title}</p>
-                            <p className="text-slate-400 text-xs font-bold mt-1 uppercase tracking-wider">{p.client}</p>
-                          </td>
-                          <td className="px-10 py-8">
-                            <div className="flex flex-col space-y-1">
-                              <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-1 rounded-md w-fit">拍攝: {p.shootDate}</span>
-                              <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-md w-fit">交片: {p.deadline}</span>
-                            </div>
-                          </td>
-                          <td className="px-10 py-8">
-                            <div className="flex items-center space-x-3 font-black text-sm">
-                              <span className="text-green-600">+${p.revenue.toLocaleString()}</span>
-                              <span className="text-slate-200">|</span>
-                              <span className="text-red-500">-${(p.adsCost + p.otherCost).toLocaleString()}</span>
-                            </div>
-                          </td>
-                          <td className="px-10 py-8">
-                            <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center w-fit ${p.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                              {p.paymentStatus === 'paid' ? <CheckCircle2 size={12} className="mr-2"/> : <AlertCircle size={12} className="mr-2"/>}
-                              {p.paymentStatus === 'paid' ? '已收款' : '待結算'}
-                            </span>
-                          </td>
-                          <td className="px-10 py-8 text-right">
-                            <div className="flex justify-end space-x-2">
-                              <button onClick={() => { setEditingProject(p); setIsModalOpen(true); }} className="p-3 bg-slate-50 hover:bg-slate-900 hover:text-white rounded-2xl transition-all"><LayoutDashboard size={18}/></button>
-                              <button onClick={() => { if(confirm('確定刪除？')) setProjects(projects.filter(x => x.id !== p.id)) }} className="p-3 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all"><Trash2 size={18}/></button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="max-w-5xl mx-auto bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                    <th className="px-8 py-6">項目名稱</th>
+                    <th className="px-8 py-6">關鍵日期</th>
+                    <th className="px-8 py-6">金額 (HKD)</th>
+                    <th className="px-8 py-6">狀態</th>
+                    <th className="px-8 py-6 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {projects
+                    .filter(p => reportType === 'all' || p.shootDate.startsWith(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`))
+                    .map(p => (
+                    <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-8 py-6">
+                        <div className="font-black text-slate-900">{p.title}</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase mt-1">{p.client}</div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex flex-col space-y-1">
+                          <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded w-fit">拍攝: {p.shootDate}</span>
+                          <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded w-fit">交片: {p.deadline}</span>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="font-black text-sm">
+                          {p.revenue > 0 ? (
+                            <span className="text-green-600">+${p.revenue.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-red-500">-${(p.adsCost + p.otherCost).toLocaleString()}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${p.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {p.paymentStatus === 'paid' ? '已入帳' : '待處理'}
+                        </span>
+                      </td>
+                      <td className="px-8 py-6 text-right">
+                        <div className="flex justify-end space-x-2">
+                          <button onClick={() => { setEditingItem(p); setIsModalOpen(true); }} className="p-2 bg-slate-100 hover:bg-slate-900 hover:text-white rounded-xl transition-all"><LayoutDashboard size={16}/></button>
+                          <button onClick={() => setProjects(projects.filter(x => x.id !== p.id))} className="p-2 text-red-300 hover:text-red-600 transition-all"><Trash2 size={16}/></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </main>
 
-      {/* 彈出編輯視窗 */}
+      {/* 編輯/新增視窗 */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
-          <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-slate-900 p-10 text-white flex justify-between items-center">
-              <div>
-                <h3 className="text-3xl font-black italic tracking-tighter">{editingProject ? '修改項目' : '新增廣告項目'}</h3>
-                <p className="text-slate-400 text-xs font-bold mt-2 uppercase tracking-[0.3em]">Project Editor</p>
-              </div>
-              <button onClick={() => setIsModalOpen(false)} className="bg-slate-800 p-3 rounded-full hover:bg-red-500 transition-all text-white">
-                <Plus size={24} className="rotate-45" />
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
+          <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden">
+            <div className="bg-slate-950 p-8 text-white flex justify-between items-center">
+              <h3 className="text-2xl font-black tracking-tighter italic">{editingItem ? '修改項目' : '新增財務紀錄'}</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24}/></button>
             </div>
-            
-            <form onSubmit={addOrUpdateProject} className="p-10 grid grid-cols-1 md:grid-cols-2 gap-8 max-h-[70vh] overflow-y-auto">
-              <div className="md:col-span-2 space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">廣告片名稱 / 合作主題</label>
-                <input name="title" required defaultValue={editingProject?.title} className="w-full px-8 py-5 bg-slate-50 border-4 border-slate-50 rounded-[1.5rem] focus:border-blue-600 outline-none font-black text-lg transition-all" placeholder="輸入影片主題..." />
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">客戶/品牌</label>
-                <input name="client" required defaultValue={editingProject?.client} className="w-full px-6 py-4 bg-slate-50 border-4 border-slate-50 rounded-[1.2rem] focus:border-blue-600 outline-none font-bold" />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">付款狀態</label>
-                <select name="paymentStatus" defaultValue={editingProject?.paymentStatus || 'unpaid'} className="w-full px-6 py-4 bg-slate-50 border-4 border-slate-50 rounded-[1.2rem] focus:border-blue-600 outline-none font-black">
-                  <option value="unpaid">待收款 (Unpaid)</option>
-                  <option value="paid">已收全款 (Paid)</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest px-2">🎥 拍攝日期</label>
-                <input type="date" name="shootDate" required defaultValue={editingProject?.shootDate} className="w-full px-6 py-4 bg-slate-50 border-4 border-slate-50 rounded-[1.2rem] focus:border-blue-600 outline-none font-black" />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest px-2">🏁 交片死線</label>
-                <input type="date" name="deadline" required defaultValue={editingProject?.deadline} className="w-full px-6 py-4 bg-blue-50 border-4 border-blue-50 rounded-[1.2rem] focus:border-blue-600 outline-none font-black text-blue-600" />
-              </div>
-
-              <div className="md:col-span-2 bg-slate-900 p-8 rounded-[2rem] grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-green-400 uppercase tracking-widest px-2">廣告收入 ($)</label>
-                  <input type="number" name="revenue" required defaultValue={editingProject?.revenue || 0} className="w-full bg-slate-800 border-none rounded-xl px-4 py-3 text-white font-black text-xl outline-none" />
+            <form onSubmit={saveProject} className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">項目名稱</label>
+                  <input name="title" required defaultValue={editingItem?.title} className="w-full px-5 py-3 bg-slate-100 border-none rounded-xl font-bold" placeholder="例如：深圳美食推介" />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-red-400 uppercase tracking-widest px-2">Google Ads ($)</label>
-                  <input type="number" name="adsCost" required defaultValue={editingProject?.adsCost || 0} className="w-full bg-slate-800 border-none rounded-xl px-4 py-3 text-white font-black text-xl outline-none" />
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">客戶</label>
+                  <input name="client" required defaultValue={editingItem?.client} className="w-full px-5 py-3 bg-slate-100 border-none rounded-xl font-bold" />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">其他雜費 ($)</label>
-                  <input type="number" name="otherCost" defaultValue={editingProject?.otherCost || 0} className="w-full bg-slate-800 border-none rounded-xl px-4 py-3 text-white font-black text-xl outline-none" />
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">支付狀態</label>
+                  <select name="paymentStatus" defaultValue={editingItem?.paymentStatus} className="w-full px-5 py-3 bg-slate-100 border-none rounded-xl font-bold">
+                    <option value="unpaid">待收款</option>
+                    <option value="paid">已收妥</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">拍攝日期</label>
+                  <input type="date" name="shootDate" required defaultValue={editingItem?.shootDate} className="w-full px-5 py-3 bg-slate-100 border-none rounded-xl font-bold" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">交片死線</label>
+                  <input type="date" name="deadline" required defaultValue={editingItem?.deadline} className="w-full px-5 py-3 bg-slate-100 border-none rounded-xl font-bold" />
                 </div>
               </div>
 
-              <button type="submit" className="md:col-span-2 bg-blue-600 hover:bg-blue-700 text-white font-black py-6 rounded-[2rem] shadow-2xl shadow-blue-500/20 transition-all active:scale-95 text-xl">
-                儲存所有變更
-              </button>
+              <div className="bg-slate-900 p-6 rounded-2xl grid grid-cols-3 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-green-400 uppercase tracking-widest">收入 ($)</label>
+                  <input type="number" name="revenue" required defaultValue={editingItem?.revenue || 0} className="w-full bg-slate-800 border-none rounded-lg px-3 py-2 text-white font-black" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-red-400 uppercase tracking-widest">Ads 支出 ($)</label>
+                  <input type="number" name="adsCost" required defaultValue={editingItem?.adsCost || 0} className="w-full bg-slate-800 border-none rounded-lg px-3 py-2 text-white font-black" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">雜費 ($)</label>
+                  <input type="number" name="otherCost" defaultValue={editingItem?.otherCost || 0} className="w-full bg-slate-800 border-none rounded-lg px-3 py-2 text-white font-black" />
+                </div>
+              </div>
+
+              <button className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-200">儲存變動</button>
             </form>
           </div>
         </div>
